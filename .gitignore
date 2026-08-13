@@ -1,0 +1,7 @@
+.theos/
+packages/
+crash/
+*.deb
+*.dylib
+*.o
+*.dSYM/
