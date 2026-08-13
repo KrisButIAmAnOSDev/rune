@@ -11,7 +11,7 @@
 #import <notify.h>
 
 #define kRuneIconsDir "/var/jb/Library/rune/Icons"
-#define kSnowBoardTheme "/var/jb/Library/Themes/MojoxDarkIcon.theme/IconBundles"
+#define kSnowBoardTheme "/var/jb/Library/Themes/MojoxDark - HomeScreen-.theme/IconBundles"
 
 @interface SBIcon : NSObject
 - (id)leafIdentifier;
