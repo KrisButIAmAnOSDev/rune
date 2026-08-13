@@ -46,7 +46,7 @@ The output `.deb` will be in the `packages/` folder.
 
 ## Credits
 
-Inspired by [SnowBoard](https://github.com/SnowBoardTeam/).
+Inspired by [SnowBoard](https://www.sparkdev.me/package/com.spark.snowboard).
 
 ---
 
