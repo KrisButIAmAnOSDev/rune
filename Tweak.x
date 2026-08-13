@@ -39,6 +39,7 @@
 static BOOL kEnabled = NO;
 static NSSet *kThemedBIDs = nil;
 static NSMutableDictionary *kImageCache = nil;
+static dispatch_queue_t kRuneQueue = nil;
 
 // Resolve a bundle id for an icon, even when leafIdentifier is a scene UUID.
 static NSString *runeResolveBID(id icon) {
@@ -106,13 +107,17 @@ static UIImage *runeLoadImage(const char *path) {
 
 static UIImage *runeThemedForBID(NSString *bid) {
     if (!bid) return nil;
-    UIImage *th = kImageCache[bid];
-    if (!th) {
-        NSString *path = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, bid];
-        th = runeLoadImage([path UTF8String]);
-        if (th) kImageCache[bid] = th;
+    NSString *lower = [bid lowercaseString];
+    if (![kThemedBIDs containsObject:lower]) return nil;
+    @synchronized (kImageCache) {
+        UIImage *th = kImageCache[lower];
+        if (!th) {
+            NSString *path = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, lower];
+            th = runeLoadImage([path UTF8String]);
+            if (th) kImageCache[lower] = th;
+        }
+        return th;
     }
-    return th;
 }
 
 static void runeLoadConfig(void) {
@@ -127,12 +132,13 @@ static void runeLoadConfig(void) {
         while ((e = readdir(dir)) != NULL) {
             NSString *name = [NSString stringWithUTF8String:e->d_name];
             if (name.length && [[name.pathExtension lowercaseString] isEqualToString:@"png"])
-                [set addObject:[name stringByDeletingPathExtension]];
+                [set addObject:[[name stringByDeletingPathExtension] lowercaseString]];
         }
         closedir(dir);
     }
     kThemedBIDs = [set copy];
     kImageCache = [NSMutableDictionary dictionary];
+    if (!kRuneQueue) kRuneQueue = dispatch_queue_create("com.krasei.rune.cache", DISPATCH_QUEUE_SERIAL);
 }
 
 %hook SBIconImageView
@@ -142,12 +148,10 @@ static void runeLoadConfig(void) {
                     isRealContentsImage:(BOOL)real
                             animated:(BOOL)animated {
     NSString *bid = runeFetchBID(self);
-    if (bid && [kThemedBIDs containsObject:bid]) {
-        UIImage *th = runeThemedForBID(bid);
-        if (th) {
-            %orig(th, appearance, real, animated);
-            return;
-        }
+    UIImage *th = runeThemedForBID(bid);
+    if (th) {
+        %orig(th, appearance, real, animated);
+        return;
     }
     %orig;
 }
@@ -155,12 +159,10 @@ static void runeLoadConfig(void) {
 - (void)setDisplayedImage:(UIImage *)image {
     if (image != nil) {
         NSString *bid = runeFetchBID(self);
-        if (bid && [kThemedBIDs containsObject:bid]) {
-            UIImage *th = runeThemedForBID(bid);
-            if (th) {
-                %orig(th);
-                return;
-            }
+        UIImage *th = runeThemedForBID(bid);
+        if (th) {
+            %orig(th);
+            return;
         }
     }
     %orig;
@@ -173,20 +175,16 @@ static void runeLoadConfig(void) {
 - (UIImage *)cachedImageForIcon:(id)icon {
     UIImage *img = %orig(icon);
     NSString *bid = runeResolveBID(icon);
-    if (bid && [kThemedBIDs containsObject:bid]) {
-        UIImage *th = runeThemedForBID(bid);
-        if (th) return th;
-    }
+    UIImage *th = runeThemedForBID(bid);
+    if (th) return th;
     return img;
 }
 
 - (UIImage *)imageForIcon:(id)icon imageAppearance:(id)appearance options:(unsigned long long)options {
     UIImage *img = %orig(icon, appearance, options);
     NSString *bid = runeResolveBID(icon);
-    if (bid && [kThemedBIDs containsObject:bid]) {
-        UIImage *th = runeThemedForBID(bid);
-        if (th) return th;
-    }
+    UIImage *th = runeThemedForBID(bid);
+    if (th) return th;
     return img;
 }
 
