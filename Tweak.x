@@ -11,6 +11,7 @@
 #import <notify.h>
 
 #define kRuneIconsDir "/var/jb/Library/rune/Icons"
+#define kSnowBoardTheme "/var/jb/Library/Themes/MojoxDarkIcon.theme/IconBundles"
 
 @interface SBIcon : NSObject
 - (id)leafIdentifier;
@@ -41,6 +42,7 @@ static BOOL kEnabled = NO;
 static NSSet *kThemedBIDs = nil;
 static NSMutableDictionary *kImageCache = nil;
 static NSMutableDictionary *kRuneNameMap = nil;
+static NSMutableDictionary *kSnowBoardIcons = nil;
 static int kRuneNotifyToken = 0;
 
 // Resolve a bundle id for an icon, even when leafIdentifier is a scene UUID.
@@ -110,13 +112,22 @@ static UIImage *runeLoadImage(const char *path) {
 static UIImage *runeThemedForBID(NSString *bid) {
     if (!bid) return nil;
     NSString *lower = [bid lowercaseString];
-    if (![kThemedBIDs containsObject:lower]) return nil;
+    if (![kThemedBIDs containsObject:lower] && !kSnowBoardIcons[lower]) return nil;
     NSString *realName = kRuneNameMap[lower] ?: lower;
     @synchronized (kImageCache) {
         UIImage *th = kImageCache[lower];
         if (!th) {
-            NSString *path = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, realName];
-            th = runeLoadImage([path UTF8String]);
+            NSString *runePath = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, realName];
+            th = runeLoadImage([runePath UTF8String]);
+            if (!th) {
+                NSString *sbName = kSnowBoardIcons[lower] ?: realName;
+                NSString *sbPath = [NSString stringWithFormat:@"%s/%@", kSnowBoardTheme, sbName];
+                th = runeLoadImage([sbPath UTF8String]);
+            }
+            if (!th) {
+                NSString *fallbackPath = [NSString stringWithFormat:@"%s/Icon.png", kSnowBoardTheme];
+                th = runeLoadImage([fallbackPath UTF8String]);
+            }
             if (th) kImageCache[lower] = th;
         }
         return th;
@@ -139,6 +150,23 @@ static void runeLoadConfig(void) {
         }
         closedir(dir);
     }
+    NSMutableDictionary *sbIcons = [NSMutableDictionary dictionary];
+    DIR *sbDir = opendir(kSnowBoardTheme);
+    if (sbDir) {
+        struct dirent *e;
+        while ((e = readdir(sbDir)) != NULL) {
+            NSString *name = [NSString stringWithUTF8String:e->d_name];
+            if (name.length && [[name.pathExtension lowercaseString] isEqualToString:@"png"]) {
+                NSString *base = [name stringByDeletingPathExtension];
+                if (![base isEqualToString:@"Icon"]) {
+                    [set addObject:[base lowercaseString]];
+                    sbIcons[[base lowercaseString]] = name;
+                }
+            }
+        }
+        closedir(sbDir);
+    }
+    kSnowBoardIcons = [sbIcons copy];
     NSMutableDictionary *nameMap = [NSMutableDictionary dictionary];
     for (NSString *name in set) {
         NSString *lower = [name lowercaseString];
