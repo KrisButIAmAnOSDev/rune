@@ -11,7 +11,8 @@
 #import <notify.h>
 
 #define kRuneIconsDir "/var/jb/Library/rune/Icons"
-#define kSnowBoardTheme "/var/jb/Library/Themes/MojoxDark - HomeScreen-.theme/IconBundles"
+#define kSnowBoardThemesDir "/var/jb/Library/Themes"
+#define kMaxThemeNameLen 256
 
 @interface SBIcon : NSObject
 - (id)leafIdentifier;
@@ -43,6 +44,7 @@ static NSSet *kThemedBIDs = nil;
 static NSMutableDictionary *kImageCache = nil;
 static NSMutableDictionary *kRuneNameMap = nil;
 static NSMutableDictionary *kSnowBoardIcons = nil;
+static char kSelectedThemePath[kMaxThemeNameLen] = {0};
 static int kRuneNotifyToken = 0;
 
 // Resolve a bundle id for an icon, even when leafIdentifier is a scene UUID.
@@ -119,19 +121,41 @@ static UIImage *runeThemedForBID(NSString *bid) {
         if (!th) {
             NSString *runePath = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, realName];
             th = runeLoadImage([runePath UTF8String]);
-            if (!th) {
+            if (!th && kSelectedThemePath[0]) {
                 NSString *sbName = kSnowBoardIcons[lower] ?: realName;
-                NSString *sbPath = [NSString stringWithFormat:@"%s/%@", kSnowBoardTheme, sbName];
+                NSString *sbPath = [NSString stringWithFormat:@"%s/%@", kSelectedThemePath, sbName];
                 th = runeLoadImage([sbPath UTF8String]);
-            }
-            if (!th) {
-                NSString *fallbackPath = [NSString stringWithFormat:@"%s/Icon.png", kSnowBoardTheme];
-                th = runeLoadImage([fallbackPath UTF8String]);
             }
             if (th) kImageCache[lower] = th;
         }
         return th;
     }
+}
+
+static NSArray *runeAvailableSnowBoardThemes(void) {
+    NSMutableArray *themes = [NSMutableArray array];
+    DIR *dir = opendir(kSnowBoardThemesDir);
+    if (!dir) return themes;
+    struct dirent *e;
+    while ((e = readdir(dir)) != NULL) {
+        NSString *name = [NSString stringWithUTF8String:e->d_name];
+        if (name.length < 7 || ![[name pathExtension] isEqualToString:@"theme"]) continue;
+        NSString *iconBundles = [NSString stringWithFormat:@"%s/%@/IconBundles", kSnowBoardThemesDir, name];
+        struct stat st;
+        if (stat([iconBundles UTF8String], &st) == 0 && S_ISDIR(st.st_mode)) {
+            [themes addObject:name];
+        }
+    }
+    closedir(dir);
+    return themes;
+}
+
+static void runeSelectTheme(const char *themeName) {
+    if (!themeName || !themeName[0]) {
+        kSelectedThemePath[0] = 0;
+        return;
+    }
+    snprintf(kSelectedThemePath, sizeof(kSelectedThemePath), "%s/%s/IconBundles", kSnowBoardThemesDir, themeName);
 }
 
 static void runeLoadConfig(void) {
@@ -150,21 +174,55 @@ static void runeLoadConfig(void) {
         }
         closedir(dir);
     }
+
+    NSString *selectedTheme = nil;
+    {
+        CFPropertyListRef plist = CFPreferencesCopyAppValue(CFSTR("SelectedSnowBoardTheme"), CFSTR("com.krasei.rune"));
+        if (plist && CFGetTypeID(plist) == CFStringGetTypeID()) {
+            selectedTheme = (__bridge NSString *)plist;
+        }
+    }
+
+    // Only auto-detect when the user has NEVER chosen a theme (pref not set).
+    // An explicit "none" must stay stock, not fall back to a theme.
+    if (selectedTheme == nil) {
+        NSArray *themes = runeAvailableSnowBoardThemes();
+        if (themes.count > 0) selectedTheme = themes[0];
+    }
+
+    if (selectedTheme && selectedTheme.length > 0 && ![selectedTheme isEqualToString:@"none"]) {
+        runeSelectTheme([selectedTheme UTF8String]);
+    } else {
+        kSelectedThemePath[0] = 0;
+    }
+
     NSMutableDictionary *sbIcons = [NSMutableDictionary dictionary];
-    DIR *sbDir = opendir(kSnowBoardTheme);
-    if (sbDir) {
-        struct dirent *e;
-        while ((e = readdir(sbDir)) != NULL) {
-            NSString *name = [NSString stringWithUTF8String:e->d_name];
-            if (name.length && [[name.pathExtension lowercaseString] isEqualToString:@"png"]) {
-                NSString *base = [name stringByDeletingPathExtension];
-                if (![base isEqualToString:@"Icon"]) {
-                    [set addObject:[base lowercaseString]];
-                    sbIcons[[base lowercaseString]] = name;
+    if (kSelectedThemePath[0]) {
+        DIR *sbDir = opendir(kSelectedThemePath);
+        if (sbDir) {
+            struct dirent *e;
+            while ((e = readdir(sbDir)) != NULL) {
+                NSString *name = [NSString stringWithUTF8String:e->d_name];
+                if (name.length && [[name.pathExtension lowercaseString] isEqualToString:@"png"]) {
+                    NSString *base = [name stringByDeletingPathExtension];
+                    if (![base isEqualToString:@"Icon"]) {
+                        // Strip common SnowBoard suffixes so lookup by plain bundle id works
+                        NSString *norm = [base copy];
+                        NSArray *suffixes = @[@"-large", @"@3x", @"@2x", @"~iphone", @"~ipad"];
+                        for (NSString *suf in suffixes) {
+                            if ([norm hasSuffix:suf]) {
+                                norm = [norm substringToIndex:norm.length - suf.length];
+                                break;
+                            }
+                        }
+                        NSString *lower = [norm lowercaseString];
+                        [set addObject:lower];
+                        sbIcons[lower] = name;
+                    }
                 }
             }
+            closedir(sbDir);
         }
-        closedir(sbDir);
     }
     kSnowBoardIcons = [sbIcons copy];
     NSMutableDictionary *nameMap = [NSMutableDictionary dictionary];
