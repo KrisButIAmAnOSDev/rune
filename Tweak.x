@@ -116,21 +116,21 @@ static UIImage *runeThemedForBID(NSString *bid) {
     NSString *lower = [bid lowercaseString];
     if (![kThemedBIDs containsObject:lower] && !kSnowBoardIcons[lower]) return nil;
     NSString *realName = kRuneNameMap[lower] ?: lower;
+    UIImage *th = nil;
     @synchronized (kImageCache) {
-        UIImage *th = kImageCache[lower];
-        if (!th) {
-            NSString *runePath = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, realName];
-            th = runeLoadImage([runePath UTF8String]);
-            if (!th && kSelectedThemePath[0]) {
-                NSString *sbName = kSnowBoardIcons[lower] ?: realName;
-                NSString *sbPath = [NSString stringWithFormat:@"%s/%@", kSelectedThemePath, sbName];
-                th = runeLoadImage([sbPath UTF8String]);
+        th = kImageCache[lower];
+            if (!th) {
+                NSString *runePath = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, realName];
+                th = runeLoadImage([runePath UTF8String]);
+                if (!th) {
+                    NSString *sbPath = kSnowBoardIcons[lower];
+                    if (sbPath) th = runeLoadImage([sbPath UTF8String]);
+                }
             }
             if (th) kImageCache[lower] = th;
         }
         return th;
     }
-}
 
 static NSArray *runeAvailableSnowBoardThemes(void) {
     NSMutableArray *themes = [NSMutableArray array];
@@ -155,7 +155,7 @@ static void runeSelectTheme(const char *themeName) {
         kSelectedThemePath[0] = 0;
         return;
     }
-    snprintf(kSelectedThemePath, sizeof(kSelectedThemePath), "%s/%s/IconBundles", kSnowBoardThemesDir, themeName);
+    snprintf(kSelectedThemePath, sizeof(kSelectedThemePath), "%s/%s.theme/IconBundles", kSnowBoardThemesDir, themeName);
 }
 
 static void runeLoadConfig(void) {
@@ -198,15 +198,16 @@ static void runeLoadConfig(void) {
 
     NSMutableDictionary *sbIcons = [NSMutableDictionary dictionary];
     if (kSelectedThemePath[0]) {
-        DIR *sbDir = opendir(kSelectedThemePath);
-        if (sbDir) {
+        NSString *themeRoot = [@(kSelectedThemePath) stringByDeletingLastPathComponent];
+        for (NSString *sub in @[@(kSelectedThemePath), [themeRoot stringByAppendingPathComponent:@"Bundles"]]) {
+            DIR *sbDir = opendir([sub UTF8String]);
+            if (!sbDir) continue;
             struct dirent *e;
             while ((e = readdir(sbDir)) != NULL) {
                 NSString *name = [NSString stringWithUTF8String:e->d_name];
                 if (name.length && [[name.pathExtension lowercaseString] isEqualToString:@"png"]) {
                     NSString *base = [name stringByDeletingPathExtension];
                     if (![base isEqualToString:@"Icon"]) {
-                        // Strip common SnowBoard suffixes so lookup by plain bundle id works
                         NSString *norm = [base copy];
                         NSArray *suffixes = @[@"-large", @"@3x", @"@2x", @"~iphone", @"~ipad"];
                         for (NSString *suf in suffixes) {
@@ -217,7 +218,7 @@ static void runeLoadConfig(void) {
                         }
                         NSString *lower = [norm lowercaseString];
                         [set addObject:lower];
-                        sbIcons[lower] = name;
+                        sbIcons[lower] = [sub stringByAppendingPathComponent:name];
                     }
                 }
             }

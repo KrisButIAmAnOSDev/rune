@@ -25,8 +25,9 @@ static NSArray *runeScanThemes(void) {
         // (i.e. a PNG that isn't the generic "Icon.png"). This filters out
         // badge / clock / lockscreen sub-themes.
         BOOL hasAppIcon = NO;
-        DIR *ibd = opendir([ib UTF8String]);
-        if (ibd) {
+        for (NSString *sub in @[ib, [ib stringByReplacingOccurrencesOfString:@"/IconBundles" withString:@"/Bundles"]]) {
+            DIR *ibd = opendir([sub UTF8String]);
+            if (!ibd) continue;
             struct dirent *ie;
             while ((ie = readdir(ibd)) != NULL) {
                 NSString *fn = [NSString stringWithUTF8String:ie->d_name];
@@ -35,8 +36,10 @@ static NSArray *runeScanThemes(void) {
                 if (![base isEqualToString:@"Icon"]) { hasAppIcon = YES; break; }
             }
             closedir(ibd);
+            if (hasAppIcon) break;
         }
-        if (hasAppIcon) [themes addObject:name];
+        if (!hasAppIcon) continue;
+        [themes addObject:[name stringByDeletingPathExtension]];
     }
     closedir(dir);
     return [themes sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
@@ -68,8 +71,8 @@ static void runeSyncPrefs(void) {
 
 static void runeRespring(void) {
     pid_t pid = 0;
-    const char *argv[] = {"killall", "-9", "SpringBoard", NULL};
-    posix_spawn(&pid, "/usr/bin/killall", NULL, NULL, (char *const *)argv, NULL);
+    const char *argv[] = {"sbreload", NULL};
+    posix_spawn(&pid, "/var/jb/usr/bin/sbreload", NULL, NULL, (char *const *)argv, NULL);
     if (pid > 0) waitpid(pid, NULL, 0);
 }
 
