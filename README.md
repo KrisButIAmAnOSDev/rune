@@ -4,9 +4,7 @@ Mini SnowBoard-style icon themer for iOS.
 
 **Package ID:** `com.krasei.rune`  
 **Author:** krasei  (or krisbutiamanosdev/susiefromdeltarune/noelledev)
-**Version:** 1.0.0  
-**iOS Support:** 15.0+  
-**Rootless:** Yes
+**iOS Support:** 15.0+
 
 ---
 
