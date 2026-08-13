@@ -34,6 +34,8 @@
 			<false/>
 			<key>defaults</key>
 			<string>com.krasei.rune</string>
+			<key>postnotification</key>
+			<string>com.krasei.rune.settingschanged</string>
 		</dict>
 	</array>
 </dict>

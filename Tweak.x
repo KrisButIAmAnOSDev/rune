@@ -8,6 +8,7 @@
 #import <fcntl.h>
 #import <stdarg.h>
 #import <time.h>
+#import <notify.h>
 
 #define kRuneIconsDir "/var/jb/Library/rune/Icons"
 
@@ -39,7 +40,8 @@
 static BOOL kEnabled = NO;
 static NSSet *kThemedBIDs = nil;
 static NSMutableDictionary *kImageCache = nil;
-static dispatch_queue_t kRuneQueue = nil;
+static NSMutableDictionary *kRuneNameMap = nil;
+static int kRuneNotifyToken = 0;
 
 // Resolve a bundle id for an icon, even when leafIdentifier is a scene UUID.
 static NSString *runeResolveBID(id icon) {
@@ -109,10 +111,11 @@ static UIImage *runeThemedForBID(NSString *bid) {
     if (!bid) return nil;
     NSString *lower = [bid lowercaseString];
     if (![kThemedBIDs containsObject:lower]) return nil;
+    NSString *realName = kRuneNameMap[lower] ?: lower;
     @synchronized (kImageCache) {
         UIImage *th = kImageCache[lower];
         if (!th) {
-            NSString *path = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, lower];
+            NSString *path = [NSString stringWithFormat:@"%s/%@.png", kRuneIconsDir, realName];
             th = runeLoadImage([path UTF8String]);
             if (th) kImageCache[lower] = th;
         }
@@ -136,9 +139,14 @@ static void runeLoadConfig(void) {
         }
         closedir(dir);
     }
+    NSMutableDictionary *nameMap = [NSMutableDictionary dictionary];
+    for (NSString *name in set) {
+        NSString *lower = [name lowercaseString];
+        nameMap[lower] = name;
+    }
     kThemedBIDs = [set copy];
     kImageCache = [NSMutableDictionary dictionary];
-    if (!kRuneQueue) kRuneQueue = dispatch_queue_create("com.krasei.rune.cache", DISPATCH_QUEUE_SERIAL);
+    kRuneNameMap = [nameMap copy];
 }
 
 %hook SBIconImageView
@@ -147,16 +155,24 @@ static void runeLoadConfig(void) {
                       imageAppearance:(id)appearance
                     isRealContentsImage:(BOOL)real
                             animated:(BOOL)animated {
+    if (!kEnabled) {
+        %orig(image, appearance, real, animated);
+        return;
+    }
     NSString *bid = runeFetchBID(self);
     UIImage *th = runeThemedForBID(bid);
     if (th) {
         %orig(th, appearance, real, animated);
         return;
     }
-    %orig;
+    %orig(image, appearance, real, animated);
 }
 
 - (void)setDisplayedImage:(UIImage *)image {
+    if (!kEnabled) {
+        %orig(image);
+        return;
+    }
     if (image != nil) {
         NSString *bid = runeFetchBID(self);
         UIImage *th = runeThemedForBID(bid);
@@ -165,7 +181,7 @@ static void runeLoadConfig(void) {
             return;
         }
     }
-    %orig;
+    %orig(image);
 }
 
 %end
@@ -173,6 +189,7 @@ static void runeLoadConfig(void) {
 %hook SBHIconImageCache
 
 - (UIImage *)cachedImageForIcon:(id)icon {
+    if (!kEnabled) return %orig(icon);
     UIImage *img = %orig(icon);
     NSString *bid = runeResolveBID(icon);
     UIImage *th = runeThemedForBID(bid);
@@ -181,6 +198,7 @@ static void runeLoadConfig(void) {
 }
 
 - (UIImage *)imageForIcon:(id)icon imageAppearance:(id)appearance options:(unsigned long long)options {
+    if (!kEnabled) return %orig(icon, appearance, options);
     UIImage *img = %orig(icon, appearance, options);
     NSString *bid = runeResolveBID(icon);
     UIImage *th = runeThemedForBID(bid);
@@ -192,4 +210,7 @@ static void runeLoadConfig(void) {
 
 %ctor {
     runeLoadConfig();
+    notify_register_dispatch("com.krasei.rune.settingschanged", &kRuneNotifyToken, dispatch_get_main_queue(), ^(int token) {
+        runeLoadConfig();
+    });
 }
