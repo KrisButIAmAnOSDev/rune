@@ -1,0 +1,9 @@
+Package: com.krasei.spotlightprobe
+Name: Spotlight Probe
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Debug probe for Spotlight icon theming.
+Author: krasei
+Maintainer: krasei
+Section: Tweaks
+Depends: firmware (>= 15.0)

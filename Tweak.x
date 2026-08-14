@@ -9,6 +9,7 @@
 #import <stdarg.h>
 #import <time.h>
 #import <notify.h>
+#import <dlfcn.h>
 
 #define kRuneIconsDir "/var/jb/Library/rune/Icons"
 #define kSnowBoardThemesDir "/var/jb/Library/Themes"
@@ -295,8 +296,68 @@ static void runeLoadConfig(void) {
 
 %end
 
+// MARK: - Spotlight (SearchUI) icon theming — runtime hook
+
+static IMP rOrigSearchUILoadImage = NULL;
+
+static void rSpotLog(const char *fmt, ...) {
+    if (!fmt) return;
+    va_list ap;
+    va_start(ap, fmt);
+    char buf[1024];
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    int fd = open("/var/mobile/Library/rune_hook.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) { dprintf(fd, "%s\n", buf); close(fd); }
+}
+
+static UIImage *rNewSearchUILoadImage(id self, SEL _cmd, CGFloat scale, BOOL isDark) {
+    UIImage *result = ((UIImage *(*)(id, SEL, CGFloat, BOOL))rOrigSearchUILoadImage)(self, _cmd, scale, isDark);
+    if (kEnabled && result) {
+        NSString *bid = nil;
+        if ([self respondsToSelector:@selector(bundleIdentifier)]) {
+            bid = ((id(*)(id,SEL))objc_msgSend)(self, @selector(bundleIdentifier));
+        }
+        if ([bid isKindOfClass:[NSString class]] && bid.length) {
+            UIImage *th = runeThemedForBID(bid);
+            if (th) {
+                rSpotLog("HOOK FIRED bid=%@ returning themed", bid);
+                return th;
+            }
+        }
+    }
+    return result;
+}
+
+static void rHookSearchUI(void) {
+    rSpotLog("rHookSearchUI called");
+    Class cls = objc_getClass("SearchUIAppIconImage");
+    if (!cls) {
+        rSpotLog("SearchUIAppIconImage class NOT FOUND");
+        return;
+    }
+    rSpotLog("SearchUIAppIconImage class FOUND");
+    SEL sel = @selector(loadImageWithScale:isDarkStyle:);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m) {
+        rSpotLog("loadImageWithScale:isDarkStyle: method NOT FOUND");
+        unsigned int mc = 0;
+        Method *methods = class_copyMethodList(cls, &mc);
+        for (unsigned int i = 0; i < mc; i++) {
+            rSpotLog("  method: %s", sel_getName(method_getName(methods[i])));
+        }
+        free(methods);
+        return;
+    }
+    rOrigSearchUILoadImage = method_getImplementation(m);
+    method_setImplementation(m, (IMP)rNewSearchUILoadImage);
+    rSpotLog("SearchUIAppIconImage hooked OK");
+}
+
 %ctor {
+    rSpotLog("Tweak loading...");
     runeLoadConfig();
+    rHookSearchUI();
     notify_register_dispatch("com.krasei.rune.settingschanged", &kRuneNotifyToken, dispatch_get_main_queue(), ^(int token) {
         runeLoadConfig();
     });
