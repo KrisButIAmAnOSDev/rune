@@ -6,4 +6,4 @@ Description: Mini SnowBoard-style icon themer (open source).
 Author: krasei
 Maintainer: krasei
 Section: Tweaks
-Depends: preferenceloader, firmware (>= 15.0)
+Depends: firmware (>= 15.0)
